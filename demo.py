@@ -5,9 +5,9 @@ from tempfile import TemporaryDirectory
 from grid.intake import initialize_grid, read_grid_revision, register_grid
 from grid.revisions import RevisionStore
 from ledger.catalog import ReportCatalog
-from ledger.history import read_review
-from review.assemble import issue_review
-from sheet.publish import publish_sheet
+from ledger.history import read_review, read_overlap_review
+from review.assemble import issue_review, issue_overlap_review
+from sheet.publish import publish_overlap_sheet, publish_sheet
 from sheet.store import SheetStore, read_sheet
 from survey.catalog import SurveyCatalog
 from survey.register import open_survey
@@ -98,12 +98,70 @@ def run(root: Path, sample: dict, expected: dict) -> None:
     }, sort_keys=True))
 
 
+def overlap_demo(root: Path) -> dict:
+    source = RevisionStore(root / 'v2-source.sqlite')
+    surveys = SurveyCatalog(root / 'v2-surveys.sqlite')
+    sheets = SheetStore(root / 'v2-sheets.sqlite')
+    reports = ReportCatalog(root / 'v2-reports.sqlite')
+    initialize_grid(source)
+    surveys.initialize()
+    sheets.initialize()
+    reports.initialize()
+
+    def bundle(rows):
+        revision_id = register_grid(source, 'riverbank', (0, 0), (1, 1), rows)
+        order = open_survey(source, surveys, revision_id, 0, {'whole': (0, 0, 1, 1)})
+        issued = publish_overlap_sheet(source, surveys, sheets, order.survey_id, 'whole')
+        raw = read_sheet(sheets, issued.packet_id)
+        return (order.survey_id, ('whole',), (raw,)), issued
+
+    base, _ = bundle(((-1, 1), (1, 3)))
+    scaled, _ = bundle(((-2, 2), (2, 6)))
+    endpoints, _ = bundle(((-1, 1), (1, 5)))
+    kept = issue_overlap_review(surveys, reports, base, scaled)
+    dropped = issue_overlap_review(surveys, reports, base, endpoints)
+
+    source.path.rename(root / 'v2-source.offline')
+    sheets.path.rename(root / 'v2-sheets.offline')
+    reopened = ReportCatalog(reports.path)
+    reopened.initialize()
+    kept_record = read_overlap_review(reopened, kept.report_id)
+    dropped_record = read_overlap_review(reopened, dropped.report_id)
+    result = {
+        'same_endpoints_kept_pairs': [list(pair) for pair in kept_record.report.pairs],
+        'same_endpoints_dropped_pairs': [list(pair) for pair in dropped_record.report.pairs],
+        'kept_receipt_matches': kept_record.receipt == kept.receipt,
+        'dropped_receipt_matches': dropped_record.receipt == dropped.receipt,
+        'source_present': source.path.exists(),
+        'sheet_store_present': sheets.path.exists(),
+    }
+    if result != {
+        'same_endpoints_kept_pairs': [[0, 0]],
+        'same_endpoints_dropped_pairs': [],
+        'kept_receipt_matches': True,
+        'dropped_receipt_matches': True,
+        'source_present': False,
+        'sheet_store_present': False,
+    }:
+        raise RuntimeError(f'overlap demo mismatch: {result!r}')
+    return result
+
+
 def main() -> None:
     samples = Path(__file__).resolve().parent / 'samples'
     sample = json.loads((samples / 'riverbank.json').read_text(encoding='utf-8'))
     expected = json.loads((samples / 'riverbank_expected.json').read_text(encoding='utf-8'))
     with TemporaryDirectory(prefix='cheng-an-handover-') as directory:
-        run(Path(directory), sample, expected)
+        root = Path(directory)
+        run(root, sample, expected)
+        overlap = overlap_demo(root)
+    print('POINTWISE_OVERLAP ' + json.dumps({
+        **overlap,
+        'code_paths': ['sheet/overlap.py', 'sheet/overlap_geometry.py',
+                       'review/overlap_selection.py', 'review/overlap_assemble.py',
+                       'ledger/overlap.py', 'ledger/history.py'],
+        'oracle': 'Hand levels (-1,1,1,3)->(-2,2,2,6) keep the segment; (-1,1,1,5) keeps only its two endpoints.',
+    }, sort_keys=True))
 
 
 if __name__ == '__main__':

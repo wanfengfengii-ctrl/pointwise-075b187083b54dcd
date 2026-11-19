@@ -12,7 +12,7 @@ _EDGES = ((0, 1), (0, 2), (1, 3), (2, 3))
 LocalPieces = tuple[tuple[BoundaryContact, ...], ...]
 
 
-def _boundary_contacts(values: tuple[Fraction, ...]) -> tuple[BoundaryContact, ...]:
+def boundary_contacts(values: tuple[Fraction, ...]) -> tuple[BoundaryContact, ...]:
     contacts = set()
     for first, last in _EDGES:
         contact = edge_zero_set(_VERTICES[first], _VERTICES[last], values[first], values[last])
@@ -32,7 +32,7 @@ def classify_cell(
     """Return the boundary contacts of each connected piece in the unit square."""
     values = tuple(Fraction(value) - Fraction(level) for value in corners)
     lower_left, lower_right, upper_left, upper_right = values
-    contacts = _boundary_contacts(values)
+    contacts = boundary_contacts(values)
     if not contacts:
         return ()
 

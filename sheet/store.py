@@ -73,3 +73,26 @@ class SheetStore:
 
 def read_sheet(store: SheetStore, packet_id: str) -> str:
     return store.read_packet(packet_id)
+
+
+def commit_overlap_packet(
+    store: SheetStore, packet, *, before_commit: Callable[[], None] | None = None,
+) -> IssuedSheet:
+    from sheet.overlap import encode_overlap_packet, decode_overlap_packet
+
+    raw = encode_overlap_packet(packet)
+    decoded = decode_overlap_packet(raw)
+    if decoded.packet_id != packet.packet_id:
+        raise ValueError('overlap packet identity changed while encoding')
+    receipt = f'sheet:{packet.packet_id}'
+    with closing(sqlite3.connect(store.path)) as connection:
+        connection.execute('PRAGMA foreign_keys = ON')
+        with connection:
+            connection.execute(
+                'INSERT INTO sheet_packets VALUES (?, ?, ?, ?)',
+                (packet.packet_id, packet.survey_id, packet.sheet_id, raw),
+            )
+            connection.execute('INSERT INTO sheet_receipts VALUES (?, ?)', (packet.packet_id, receipt))
+            if before_commit is not None:
+                before_commit()
+    return IssuedSheet(packet.packet_id, receipt)

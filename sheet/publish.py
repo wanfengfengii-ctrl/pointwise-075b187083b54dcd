@@ -25,3 +25,27 @@ def publish_sheet(
     evidence = build_sheet_evidence(revision.samples, order.geometry, order.level, coverage)
     packet = SheetPacket(order.survey_id, sheet_id, uuid4().hex, coverage, evidence)
     return sheets.commit_packet(packet, before_commit=before_commit)
+
+
+def publish_overlap_sheet(
+    source: RevisionStore,
+    surveys: SurveyCatalog,
+    sheets: SheetStore,
+    survey_id: str,
+    sheet_id: str,
+    *,
+    before_commit: Callable[[], None] | None = None,
+) -> IssuedSheet:
+    from grid.intake import read_grid_revision
+    from sheet.overlap import OverlapPacket, build_overlap_evidence
+    from sheet.store import commit_overlap_packet
+    from survey.selection import select_sheet
+
+    order = surveys.read(survey_id)
+    coverage = select_sheet(order, sheet_id)
+    revision = read_grid_revision(source, order.revision_id)
+    evidence = build_overlap_evidence(revision.samples, order.geometry, order.level, coverage)
+    packet = OverlapPacket(
+        order.survey_id, order.revision_id, sheet_id, uuid4().hex, coverage, evidence,
+    )
+    return commit_overlap_packet(sheets, packet, before_commit=before_commit)

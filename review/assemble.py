@@ -24,3 +24,9 @@ def issue_review(
     return commit_review(
         reports, order.survey_id, selection.adopted, groups, before_commit=before_commit,
     )
+
+
+def issue_overlap_review(surveys, reports, old, new, *, before_commit=None):
+    from review.overlap_assemble import issue_overlap_review as _issue
+
+    return _issue(surveys, reports, old, new, before_commit=before_commit)
